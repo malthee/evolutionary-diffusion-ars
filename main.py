@@ -1,5 +1,6 @@
 import os
 import random
+import shelve
 import sys
 from typing import List
 
@@ -8,10 +9,22 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
     QSlider
 
+from diffusers.utils import logging
+from evolutionary_prompt_embedding.argument_types import PooledPromptEmbedData
+from evolutionary_prompt_embedding.image_creation import SDXLPromptEmbeddingImageCreator
+from evolutionary_prompt_embedding.variation import \
+    UniformGaussianMutatorArguments, PooledUniformGaussianMutator, PooledArithmeticCrossover
+from evolutionary_prompt_embedding.value_ranges import SDXLTurboEmbeddingRange, SDXLTurboPooledEmbeddingRange
+from evolutionary_imaging.evaluators import AestheticsImageEvaluator
+from evolutionary_imaging.image_base import ImageSolutionData
+
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
 APP_VERSION = "0.1.0"
 TEST_IMAGES = ["./assets/test1.png", "./assets/test2.png", "./assets/test3.png"]
+SHELVE = "evolutionary_diffusion_shelve"
+IMAGE_COUNTER = "image_counter"
+IMAGE_LOCATION = "results"
 IMAGE_SIZE = 250
 LABEL_HEIGHT = 50
 CUSTOM_TITLE_BAR_HEIGHT = 30
@@ -19,15 +32,25 @@ DRAGGABLE_WINDOW_HEIGHT = IMAGE_SIZE + LABEL_HEIGHT + CUSTOM_TITLE_BAR_HEIGHT
 DRAGGABLE_WINDOW_WIDTH = IMAGE_SIZE
 MAX_FIND_POSITION_TRIES = 10
 DRAG_THRESHOLD = 10
-MAX_IMAGES = 25
+MAX_IMAGES = 10
 
 os.environ["QT_QPA_PLATFORMTHEME"] = "light"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Avoids warning from transformers
+logging.disable_progress_bar()  # Or else your output will be full of progress bars
+logging.set_verbosity_error()
+os.mkdir(IMAGE_LOCATION) if not os.path.exists(IMAGE_LOCATION) else None
+
 
 class ImageInfo:
-    def __init__(self, path: str, score: float):
+    def __init__(self, arguments, path: str, score: float):
+        self._arguments = arguments
         self._path = path
         self._score = score
         self._name = os.path.splitext(os.path.basename(path))[0]  # Filename without extension for display
+
+    @property
+    def arguments(self):
+        return self._arguments
 
     @property
     def path(self):
@@ -58,15 +81,28 @@ class ImageManager(QObject):
     imageAdded = pyqtSignal(ImageInfo)
     imageRemoved = pyqtSignal(ImageInfo)
 
+    # Setup for image generation, part of the evolutionary_diffusion library
+    imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=4, batch_size=1, deterministic=True)
+    evaluator = AestheticsImageEvaluator()
+    embedding_range = SDXLTurboEmbeddingRange()
+    pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
+    mutation_arguments = UniformGaussianMutatorArguments(mutation_rate=0.05, mutation_strength=2,
+                                                         clamp_range=(embedding_range.minimum, embedding_range.maximum))
+    mutation_arguments_pooled = UniformGaussianMutatorArguments(mutation_rate=0.05, mutation_strength=0.4,
+                                                                clamp_range=(pooled_embedding_range.minimum,
+                                                                             pooled_embedding_range.maximum))
+    mutator = PooledUniformGaussianMutator(mutation_arguments, mutation_arguments_pooled)
+
     def __init__(self):
         super().__init__()
         self._selected_images: List[ImageInfo] = []
         self._images: List[ImageInfo] = []
         self.selectionChanged.connect(self.on_selection_changed)  # Update count on selection changes
         self.imageRemoved.connect(self.on_selection_changed)  # Update count on image removal
+        self.imageAdded.connect(self.on_new_image)  # Update persisted counter of images
 
     @property
-    def selected_images(self): 
+    def selected_images(self):
         return self._selected_images
 
     @property
@@ -76,6 +112,17 @@ class ImageManager(QObject):
     @pyqtSlot()
     def on_selection_changed(self):
         self.selectionCountChanged.emit(len(self._selected_images))
+
+    @pyqtSlot()
+    def on_new_image(self):
+        with shelve.open(SHELVE) as db:
+            counter = db.get(IMAGE_COUNTER, 0)
+            counter += 1
+            db[IMAGE_COUNTER] = counter
+
+    def get_current_image_counter(self):
+        with shelve.open(SHELVE) as db:
+            return db.get(IMAGE_COUNTER, 0)
 
     def select_image(self, image_info: ImageInfo):
         if len(self._selected_images) >= 2:
@@ -93,11 +140,50 @@ class ImageManager(QObject):
             self.unselect_image(image)
         self._selected_images.clear()
 
-    def add_image(self, image_info: ImageInfo):
+    # TODO improve code dupe
+    def generate_image(self):
+        random_embeds = PooledPromptEmbedData(self.embedding_range.random_tensor_in_range(),
+                                              self.pooled_embedding_range.random_tensor_in_range())
+        image_data = self.imageCreator.create_solution(random_embeds)
+        image_data.fitness = self.evaluator.evaluate(image_data.result)
+        image_filename = f"{self.get_current_image_counter()}.png"
+        image_path = os.path.join(IMAGE_LOCATION, image_filename)
+        image_data.result.images[0].save(image_path)
+        image_info = ImageInfo(random_embeds, image_path, image_data.fitness)
+
         if len(self._images) >= MAX_IMAGES:
             self.remove_image(self._images[0])
         self._images.append(image_info)
         self.imageAdded.emit(image_info)
+
+    def mutate_image(self, image_info: ImageInfo):
+        mutated_embeds = self.mutator.mutate(image_info.arguments)
+        image_data = self.imageCreator.create_solution(mutated_embeds)
+        image_data.fitness = self.evaluator.evaluate(image_data.result)
+        image_filename = f"{self.get_current_image_counter()}.png"
+        image_path = os.path.join(IMAGE_LOCATION, image_filename)
+        image_data.result.images[0].save(image_path)
+        mutated_info = ImageInfo(mutated_embeds, image_path, image_data.fitness)
+
+        if len(self._images) >= MAX_IMAGES:
+            self.remove_image(self._images[0])
+        self._images.append(mutated_info)
+        self.imageAdded.emit(mutated_info)
+
+    def create_child(self, parent1: ImageInfo, parent2: ImageInfo, parent_contribution: int):
+        weight = float(parent_contribution) / 100
+        child_embeds = PooledArithmeticCrossover(weight, weight).crossover(parent1.arguments, parent2.arguments)
+        image_data = self.imageCreator.create_solution(child_embeds)
+        image_data.fitness = self.evaluator.evaluate(image_data.result)
+        image_filename = f"{self.get_current_image_counter()}.png"
+        image_path = os.path.join(IMAGE_LOCATION, image_filename)
+        image_data.result.images[0].save(image_path)
+        child_info = ImageInfo(child_embeds, image_path, image_data.fitness)
+
+        if len(self._images) >= MAX_IMAGES:
+            self.remove_image(self._images[0])
+        self._images.append(child_info)
+        self.imageAdded.emit(child_info)
 
     def remove_image(self, image_info: ImageInfo):
         if image_info in self._images:
@@ -189,17 +275,19 @@ class ImageMenu(QFrame):
 
     @pyqtSlot()
     def new_image(self):
-        print("New Image")
+        self._image_manager.generate_image()
         self._image_manager.unselect_all()
 
     @pyqtSlot()
     def mutate_image(self):
-        print("Mutate Image")
+        self._image_manager.mutate_image(self._image_manager.selected_images[0])
         self._image_manager.unselect_all()
 
     @pyqtSlot()
     def create_child(self):
-        print("Create Child")
+        parent1, parent2 = self._image_manager.selected_images
+        parent_contribution = self.slider.value()
+        self._image_manager.create_child(parent1, parent2, parent_contribution)
         self._image_manager.unselect_all()
 
     @pyqtSlot(int)
@@ -255,11 +343,11 @@ class ImageWindowTitleBar(QWidget):
 
 
 class DraggableImageWindow(QMainWindow):
-    def __init__(self, image_info: ImageInfo, selection_manager: ImageManager):
+    def __init__(self, image_info: ImageInfo, image_manager: ImageManager):
         super().__init__()
         self._image_info = image_info
-        self._selection_manager = selection_manager
-        self._selection_manager.selectionChanged.connect(self.on_selection_changed)
+        self._image_manager = image_manager
+        self._image_manager.selectionChanged.connect(self.on_selection_changed)
         self.setFixedSize(DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
         # On top of the background, no frame as has custom title bar
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
@@ -299,9 +387,13 @@ class DraggableImageWindow(QMainWindow):
         self.start_pos = None  # For drag threshold
 
     def closeEvent(self, event):
-        self._selection_manager.unselect_image(self._image_info)
-        self._selection_manager.selectionChanged.disconnect(self.on_selection_changed)
+        self._image_manager.unselect_image(self._image_info)
+        self._image_manager.selectionChanged.disconnect(self.on_selection_changed)
         event.accept()
+
+    @property
+    def image_info(self):
+        return self._image_info
 
     @pyqtSlot(ImageInfo, bool)
     def on_selection_changed(self, image_info: ImageInfo, selected: bool):
@@ -324,9 +416,9 @@ class DraggableImageWindow(QMainWindow):
             distance = (event.globalPosition() - self.start_pos).manhattanLength()
             if distance < DRAG_THRESHOLD:  # Do not select if user is dragging
                 if self.property('selected'):
-                    self._selection_manager.unselect_image(self._image_info)
+                    self._image_manager.unselect_image(self._image_info)
                 else:
-                    self._selection_manager.select_image(self._image_info)
+                    self._image_manager.select_image(self._image_info)
             self.start_pos = None
         self.offset = None
 
@@ -334,7 +426,9 @@ class DraggableImageWindow(QMainWindow):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self._selection_manager = ImageManager()
+        self._image_manager = ImageManager()
+        self._image_manager.imageAdded.connect(self.on_image_added)
+        self._image_manager.imageRemoved.connect(self.on_image_removed)
 
         self.setWindowTitle(APP_NAME)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
@@ -360,7 +454,7 @@ class MainWindow(QMainWindow):
         self.trash_button.clicked.connect(self.clear_all_images)
         corner_layout.addWidget(self.trash_button)
 
-        self.image_menu = ImageMenu(self._selection_manager, self)
+        self.image_menu = ImageMenu(self._image_manager, self)
         main_layout = QVBoxLayout()
         main_layout.addLayout(corner_layout)
         central_widget = QWidget()
@@ -379,7 +473,7 @@ class MainWindow(QMainWindow):
     def initUI(self):
         for image_path in TEST_IMAGES:
             if os.path.exists(image_path):
-                frame = DraggableImageWindow(ImageInfo(image_path, random.normalvariate()), self._selection_manager)
+                frame = DraggableImageWindow(ImageInfo(None, image_path, random.normalvariate()), self._image_manager)
                 frame.setGeometry(self.getRandomRect())
                 frame.show()
                 frame.raise_()
@@ -395,6 +489,8 @@ class MainWindow(QMainWindow):
 
             if not any(frame.geometry().intersects(rect) for frame in self.frames):
                 return rect
+        return QRect(random.randint(0, self.width() - IMAGE_SIZE), random.randint(0, self.height() - IMAGE_SIZE),
+                     IMAGE_SIZE, IMAGE_SIZE)
 
     def getCenterFromRects(self, rect1, rect2):
         """Returns a QRect that is centered between two QRects but bounded in the main window."""
@@ -409,11 +505,32 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def clear_all_images(self):
-        self._selection_manager.clear_all_images()
+        self._image_manager.clear_all_images()
+        for frame in self.frames:
+            frame.close()
+
+    @pyqtSlot(ImageInfo)
+    def on_image_added(self, image_info: ImageInfo):
+        frame = DraggableImageWindow(image_info, self._image_manager)
+        frame.setGeometry(self.getRandomRect())
+        frame.show()
+        frame.raise_()
+        self.frames.append(frame)
+
+    @pyqtSlot(ImageInfo)
+    def on_image_removed(self, image_info: ImageInfo):
+        to_close = []
+        for frame in list(self.frames):
+            if frame.image_info == image_info:
+                to_close.append(frame)
+
+        for frame in to_close:
+            frame.close()
+            self.frames.remove(frame)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self._selection_manager.unselect_all()
+            self._image_manager.unselect_all()
 
 
 if __name__ == '__main__':
