@@ -3,10 +3,10 @@ import random
 import sys
 from typing import List
 
-from PyQt6.QtGui import QIcon, QDrag, QPixmap
+from PyQt6.QtCore import Qt, QRect, pyqtSlot, QObject, pyqtSignal
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
-    QGraphicsDropShadowEffect, QSlider
-from PyQt6.QtCore import Qt, QMimeData, QRect, pyqtSlot, QObject, pyqtSignal
+    QSlider
 
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
@@ -19,7 +19,9 @@ DRAGGABLE_WINDOW_HEIGHT = IMAGE_SIZE + LABEL_HEIGHT + CUSTOM_TITLE_BAR_HEIGHT
 DRAGGABLE_WINDOW_WIDTH = IMAGE_SIZE
 MAX_FIND_POSITION_TRIES = 10
 DRAG_THRESHOLD = 10
+MAX_IMAGES = 25
 
+os.environ["QT_QPA_PLATFORMTHEME"] = "light"
 
 class ImageInfo:
     def __init__(self, path: str, score: float):
@@ -43,42 +45,77 @@ class ImageInfo:
         return self.path == other.path
 
 
-class SelectionManager(QObject):
+class ImageManager(QObject):
     """
-    Manages the selection of images. Only two images can be selected at a time.
+    Manages the display and selection of images.
+    Only two images can be selected at a time.
+    Only MAX_IMAGES images can be displayed at a time.
+    Otherwise, the oldest image is removed.
     """
 
-    selectionChanged = pyqtSignal(list)
+    selectionChanged = pyqtSignal((ImageInfo, bool))
+    selectionCountChanged = pyqtSignal(int)
+    imageAdded = pyqtSignal(ImageInfo)
+    imageRemoved = pyqtSignal(ImageInfo)
 
     def __init__(self):
         super().__init__()
         self._selected_images: List[ImageInfo] = []
+        self._images: List[ImageInfo] = []
+        self.selectionChanged.connect(self.on_selection_changed)  # Update count on selection changes
+        self.imageRemoved.connect(self.on_selection_changed)  # Update count on image removal
 
     @property
     def selected_images(self): 
         return self._selected_images
 
+    @property
+    def images(self):
+        return self._images
+
+    @pyqtSlot()
+    def on_selection_changed(self):
+        self.selectionCountChanged.emit(len(self._selected_images))
+
     def select_image(self, image_info: ImageInfo):
         if len(self._selected_images) >= 2:
-            self._selected_images.pop(0)
+            self.unselect_image(self._selected_images[0])
         self._selected_images.append(image_info)
-        self.selectionChanged.emit(self._selected_images)
+        self.selectionChanged.emit(image_info, True)
 
     def unselect_image(self, image_info: ImageInfo):
         if image_info in self._selected_images:
             self._selected_images.remove(image_info)
-            self.selectionChanged.emit(self._selected_images)
+            self.selectionChanged.emit(image_info, False)
 
     def unselect_all(self):
+        for image in list(self._selected_images):  # Copy to avoid modifying while iterating
+            self.unselect_image(image)
         self._selected_images.clear()
-        self.selectionChanged.emit(self._selected_images)
+
+    def add_image(self, image_info: ImageInfo):
+        if len(self._images) >= MAX_IMAGES:
+            self.remove_image(self._images[0])
+        self._images.append(image_info)
+        self.imageAdded.emit(image_info)
+
+    def remove_image(self, image_info: ImageInfo):
+        if image_info in self._images:
+            self._images.remove(image_info)
+            self.imageRemoved.emit(image_info)
+
+    def clear_all_images(self):
+        self.unselect_all()
+        for image in list(self._images):  # Copy to avoid modifying while iterating
+            self.remove_image(image)
+        self._images.clear()
 
 
 class ImageMenu(QFrame):
-    def __init__(self, selection_manager, parent=None):
+    def __init__(self, image_manager, parent=None):
         super().__init__(parent)
-        self._selection_manager = selection_manager
-        self._selection_manager.selectionChanged.connect(self.on_selection_changed)
+        self._image_manager = image_manager
+        self._image_manager.selectionCountChanged.connect(self.update_visibility)
         self.setFixedSize(300, 200)
         self.setStyleSheet("""
             QPushButton {
@@ -144,31 +181,28 @@ class ImageMenu(QFrame):
         self.slider_layout.addWidget(self.split_button)
         self.layout.addLayout(self.slider_layout)
 
-        self.update_visibility(len(self._selection_manager.selected_images))
+        self.update_visibility(len(self._image_manager.selected_images))
 
     def closeEvent(self, event):
-        self._selection_manager.selectionChanged.disconnect(self.on_selection_changed)
+        self._image_manager.selectionChanged.disconnect(self.update_visibility)
         event.accept()
-
-    @pyqtSlot(list)
-    def on_selection_changed(self, selected_images):
-        self.update_visibility(len(selected_images))
 
     @pyqtSlot()
     def new_image(self):
         print("New Image")
-        self._selection_manager.unselect_all()
+        self._image_manager.unselect_all()
 
     @pyqtSlot()
     def mutate_image(self):
         print("Mutate Image")
-        self._selection_manager.unselect_all()
+        self._image_manager.unselect_all()
 
     @pyqtSlot()
     def create_child(self):
         print("Create Child")
-        self._selection_manager.unselect_all()
+        self._image_manager.unselect_all()
 
+    @pyqtSlot(int)
     def update_visibility(self, selected_count):
         """
         When none selected, allow new child creation. Otherwise, either mutate an image or create a child from two images.
@@ -221,7 +255,7 @@ class ImageWindowTitleBar(QWidget):
 
 
 class DraggableImageWindow(QMainWindow):
-    def __init__(self, image_info: ImageInfo, selection_manager: SelectionManager):
+    def __init__(self, image_info: ImageInfo, selection_manager: ImageManager):
         super().__init__()
         self._image_info = image_info
         self._selection_manager = selection_manager
@@ -269,14 +303,11 @@ class DraggableImageWindow(QMainWindow):
         self._selection_manager.selectionChanged.disconnect(self.on_selection_changed)
         event.accept()
 
-    @pyqtSlot(list)
-    def on_selection_changed(self, selected_images):
-        if self._image_info in selected_images:
-            self.setProperty('selected', True)
-        else:
-            self.setProperty('selected', False)
-
-        self.style().polish(self)
+    @pyqtSlot(ImageInfo, bool)
+    def on_selection_changed(self, image_info: ImageInfo, selected: bool):
+        if image_info == self._image_info:
+            self.setProperty('selected', selected)
+            self.style().polish(self)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -303,15 +334,35 @@ class DraggableImageWindow(QMainWindow):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self._selection_manager = SelectionManager()
+        self._selection_manager = ImageManager()
 
         self.setWindowTitle(APP_NAME)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
                             Qt.WindowType.CustomizeWindowHint)
         self.showFullScreen()
 
+        corner_layout = QHBoxLayout()
+        corner_layout.addStretch()
+        self.trash_button = QPushButton(parent=self, text="🗑️")
+        self.trash_button.setToolTip("Clear all Images")
+        self.trash_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                font-size: 48px;
+                border: none;
+                border-radius: 12px;
+                margin: 10px;
+            }
+            QPushButton:hover {
+                background-color: lightgray;
+            }
+        """)
+        self.trash_button.clicked.connect(self.clear_all_images)
+        corner_layout.addWidget(self.trash_button)
+
         self.image_menu = ImageMenu(self._selection_manager, self)
         main_layout = QVBoxLayout()
+        main_layout.addLayout(corner_layout)
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         main_layout.addStretch()
@@ -321,12 +372,17 @@ class MainWindow(QMainWindow):
         self.frames = []
         self.initUI()
 
+    # If needed to prevent closing
+    # def closeEvent(self, event):
+    #   event.ignore()
+
     def initUI(self):
         for image_path in TEST_IMAGES:
             if os.path.exists(image_path):
                 frame = DraggableImageWindow(ImageInfo(image_path, random.normalvariate()), self._selection_manager)
                 frame.setGeometry(self.getRandomRect())
                 frame.show()
+                frame.raise_()
                 self.frames.append(frame)
 
     def getRandomRect(self):
@@ -340,13 +396,27 @@ class MainWindow(QMainWindow):
             if not any(frame.geometry().intersects(rect) for frame in self.frames):
                 return rect
 
-    # def closeEvent(self, event):
-    #   event.ignore()
+    def getCenterFromRects(self, rect1, rect2):
+        """Returns a QRect that is centered between two QRects but bounded in the main window."""
+        x = (rect1.x() + rect2.x()) / 2
+        y = (rect1.y() + rect2.y()) / 2
+        # Check bounds
+        if x + IMAGE_SIZE > self.width():
+            x = self.width() - IMAGE_SIZE
+        if y + IMAGE_SIZE > self.height():
+            y = self.height() - IMAGE_SIZE
+        return QRect(x, y, IMAGE_SIZE, IMAGE_SIZE)
+
+    @pyqtSlot()
+    def clear_all_images(self):
+        self._selection_manager.clear_all_images()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._selection_manager.unselect_all()
 
 
 if __name__ == '__main__':
-    # TODO check if makes sense to enable high dpi scaling
-    # QApplication.setAttribute()
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(APP_ICON))
     app.setApplicationName(APP_NAME)
