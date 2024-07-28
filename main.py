@@ -1,207 +1,46 @@
 import os
 import random
-import shelve
 import sys
-from typing import List
 
-from PyQt6.QtCore import Qt, QRect, pyqtSlot, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QRect, pyqtSlot, QTimer
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
     QSlider
 
-from diffusers.utils import logging
-from evolutionary_prompt_embedding.argument_types import PooledPromptEmbedData
-from evolutionary_prompt_embedding.image_creation import SDXLPromptEmbeddingImageCreator
-from evolutionary_prompt_embedding.variation import \
-    UniformGaussianMutatorArguments, PooledUniformGaussianMutator, PooledArithmeticCrossover
-from evolutionary_prompt_embedding.value_ranges import SDXLTurboEmbeddingRange, SDXLTurboPooledEmbeddingRange
-from evolutionary_imaging.evaluators import AestheticsImageEvaluator
-from evolutionary_imaging.image_base import ImageSolutionData
+from image_manager import ImageInfo, ImageManager
 
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
 APP_VERSION = "0.1.0"
-TEST_IMAGES = ["./assets/test1.png", "./assets/test2.png", "./assets/test3.png"]
-SHELVE = "evolutionary_diffusion_shelve"
-IMAGE_COUNTER = "image_counter"
-IMAGE_LOCATION = "results"
-IMAGE_SIZE = 250
-LABEL_HEIGHT = 50
+START_IMAGES = 3
+IMAGE_SIZE = 275
+LABEL_HEIGHT = 70
 CUSTOM_TITLE_BAR_HEIGHT = 30
 DRAGGABLE_WINDOW_HEIGHT = IMAGE_SIZE + LABEL_HEIGHT + CUSTOM_TITLE_BAR_HEIGHT
 DRAGGABLE_WINDOW_WIDTH = IMAGE_SIZE
 MAX_FIND_POSITION_TRIES = 10
 DRAG_THRESHOLD = 10
-MAX_IMAGES = 10
 
-os.environ["QT_QPA_PLATFORMTHEME"] = "light"
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Avoids warning from transformers
-logging.disable_progress_bar()  # Or else your output will be full of progress bars
-logging.set_verbosity_error()
-os.mkdir(IMAGE_LOCATION) if not os.path.exists(IMAGE_LOCATION) else None
+os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
 
 
-class ImageInfo:
-    def __init__(self, arguments, path: str, score: float):
-        self._arguments = arguments
-        self._path = path
-        self._score = score
-        self._name = os.path.splitext(os.path.basename(path))[0]  # Filename without extension for display
-
-    @property
-    def arguments(self):
-        return self._arguments
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def score(self):
-        return self._score
-
-    @property
-    def name(self):
-        return self._name
-
-    def __eq__(self, other):
-        return self.path == other.path
-
-
-class ImageManager(QObject):
+def format_image_name(name: str) -> str:
     """
-    Manages the display and selection of images.
-    Only two images can be selected at a time.
-    Only MAX_IMAGES images can be displayed at a time.
-    Otherwise, the oldest image is removed.
+    Format as #000001, #000002, etc. when parsable as number or fallback to string
     """
-
-    selectionChanged = pyqtSignal((ImageInfo, bool))
-    selectionCountChanged = pyqtSignal(int)
-    imageAdded = pyqtSignal(ImageInfo)
-    imageRemoved = pyqtSignal(ImageInfo)
-
-    # Setup for image generation, part of the evolutionary_diffusion library
-    imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=4, batch_size=1, deterministic=True)
-    evaluator = AestheticsImageEvaluator()
-    embedding_range = SDXLTurboEmbeddingRange()
-    pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
-    mutation_arguments = UniformGaussianMutatorArguments(mutation_rate=0.05, mutation_strength=2,
-                                                         clamp_range=(embedding_range.minimum, embedding_range.maximum))
-    mutation_arguments_pooled = UniformGaussianMutatorArguments(mutation_rate=0.05, mutation_strength=0.4,
-                                                                clamp_range=(pooled_embedding_range.minimum,
-                                                                             pooled_embedding_range.maximum))
-    mutator = PooledUniformGaussianMutator(mutation_arguments, mutation_arguments_pooled)
-
-    def __init__(self):
-        super().__init__()
-        self._selected_images: List[ImageInfo] = []
-        self._images: List[ImageInfo] = []
-        self.selectionChanged.connect(self.on_selection_changed)  # Update count on selection changes
-        self.imageRemoved.connect(self.on_selection_changed)  # Update count on image removal
-        self.imageAdded.connect(self.on_new_image)  # Update persisted counter of images
-
-    @property
-    def selected_images(self):
-        return self._selected_images
-
-    @property
-    def images(self):
-        return self._images
-
-    @pyqtSlot()
-    def on_selection_changed(self):
-        self.selectionCountChanged.emit(len(self._selected_images))
-
-    @pyqtSlot()
-    def on_new_image(self):
-        with shelve.open(SHELVE) as db:
-            counter = db.get(IMAGE_COUNTER, 0)
-            counter += 1
-            db[IMAGE_COUNTER] = counter
-
-    def get_current_image_counter(self):
-        with shelve.open(SHELVE) as db:
-            return db.get(IMAGE_COUNTER, 0)
-
-    def select_image(self, image_info: ImageInfo):
-        if len(self._selected_images) >= 2:
-            self.unselect_image(self._selected_images[0])
-        self._selected_images.append(image_info)
-        self.selectionChanged.emit(image_info, True)
-
-    def unselect_image(self, image_info: ImageInfo):
-        if image_info in self._selected_images:
-            self._selected_images.remove(image_info)
-            self.selectionChanged.emit(image_info, False)
-
-    def unselect_all(self):
-        for image in list(self._selected_images):  # Copy to avoid modifying while iterating
-            self.unselect_image(image)
-        self._selected_images.clear()
-
-    # TODO improve code dupe
-    def generate_image(self):
-        random_embeds = PooledPromptEmbedData(self.embedding_range.random_tensor_in_range(),
-                                              self.pooled_embedding_range.random_tensor_in_range())
-        image_data = self.imageCreator.create_solution(random_embeds)
-        image_data.fitness = self.evaluator.evaluate(image_data.result)
-        image_filename = f"{self.get_current_image_counter()}.png"
-        image_path = os.path.join(IMAGE_LOCATION, image_filename)
-        image_data.result.images[0].save(image_path)
-        image_info = ImageInfo(random_embeds, image_path, image_data.fitness)
-
-        if len(self._images) >= MAX_IMAGES:
-            self.remove_image(self._images[0])
-        self._images.append(image_info)
-        self.imageAdded.emit(image_info)
-
-    def mutate_image(self, image_info: ImageInfo):
-        mutated_embeds = self.mutator.mutate(image_info.arguments)
-        image_data = self.imageCreator.create_solution(mutated_embeds)
-        image_data.fitness = self.evaluator.evaluate(image_data.result)
-        image_filename = f"{self.get_current_image_counter()}.png"
-        image_path = os.path.join(IMAGE_LOCATION, image_filename)
-        image_data.result.images[0].save(image_path)
-        mutated_info = ImageInfo(mutated_embeds, image_path, image_data.fitness)
-
-        if len(self._images) >= MAX_IMAGES:
-            self.remove_image(self._images[0])
-        self._images.append(mutated_info)
-        self.imageAdded.emit(mutated_info)
-
-    def create_child(self, parent1: ImageInfo, parent2: ImageInfo, parent_contribution: int):
-        weight = float(parent_contribution) / 100
-        child_embeds = PooledArithmeticCrossover(weight, weight).crossover(parent1.arguments, parent2.arguments)
-        image_data = self.imageCreator.create_solution(child_embeds)
-        image_data.fitness = self.evaluator.evaluate(image_data.result)
-        image_filename = f"{self.get_current_image_counter()}.png"
-        image_path = os.path.join(IMAGE_LOCATION, image_filename)
-        image_data.result.images[0].save(image_path)
-        child_info = ImageInfo(child_embeds, image_path, image_data.fitness)
-
-        if len(self._images) >= MAX_IMAGES:
-            self.remove_image(self._images[0])
-        self._images.append(child_info)
-        self.imageAdded.emit(child_info)
-
-    def remove_image(self, image_info: ImageInfo):
-        if image_info in self._images:
-            self._images.remove(image_info)
-            self.imageRemoved.emit(image_info)
-
-    def clear_all_images(self):
-        self.unselect_all()
-        for image in list(self._images):  # Copy to avoid modifying while iterating
-            self.remove_image(image)
-        self._images.clear()
+    try:
+        number = int(name)
+        return "#{:06d}".format(number)
+    except ValueError:
+        return f"{name}"
 
 
 class ImageMenu(QFrame):
-    def __init__(self, image_manager, parent=None):
+    def __init__(self, image_manager: ImageManager, parent=None):
         super().__init__(parent)
         self._image_manager = image_manager
         self._image_manager.selectionCountChanged.connect(self.update_visibility)
+        self._image_manager.isLoadingChanged.connect(self.update_loading)
         self.setFixedSize(300, 200)
         self.setStyleSheet("""
             QPushButton {
@@ -267,6 +106,24 @@ class ImageMenu(QFrame):
         self.slider_layout.addWidget(self.split_button)
         self.layout.addLayout(self.slider_layout)
 
+        self.loading_label = QLabel("Being generated by AI", self)
+        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_label.setStyleSheet("font-size: 24px; color: gray; padding-bottom:20px;")
+        self.layout.addWidget(self.loading_label)
+        self.loading_label.hide()  # Hide loading label initially
+
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate_loading)
+        self.loading_dots = 0
+
+        self.interactive_widgets = [
+            self.new_image_button,
+            self.mutate_button,
+            self.slider_label,
+            self.slider,
+            self.split_button
+        ]
+
         self.update_visibility(len(self._image_manager.selected_images))
 
     def closeEvent(self, event):
@@ -276,30 +133,54 @@ class ImageMenu(QFrame):
     @pyqtSlot()
     def new_image(self):
         self._image_manager.generate_image()
-        self._image_manager.unselect_all()
 
     @pyqtSlot()
     def mutate_image(self):
         self._image_manager.mutate_image(self._image_manager.selected_images[0])
-        self._image_manager.unselect_all()
 
     @pyqtSlot()
     def create_child(self):
         parent1, parent2 = self._image_manager.selected_images
         parent_contribution = self.slider.value()
         self._image_manager.create_child(parent1, parent2, parent_contribution)
-        self._image_manager.unselect_all()
+        # Reset slider
+        self.slider.setValue(50)
 
     @pyqtSlot(int)
     def update_visibility(self, selected_count):
         """
-        When none selected, allow new child creation. Otherwise, either mutate an image or create a child from two images.
+        When none selected, allow new child creation. Otherwise, either mutate an image or create a child
+        from two images.
+        Do not show when loading.
         """
-        self.new_image_button.setVisible(selected_count == 0)
-        self.mutate_button.setVisible(selected_count == 1)
-        self.slider_label.setVisible(selected_count == 2)
-        self.slider.setVisible(selected_count == 2)
-        self.split_button.setVisible(selected_count == 2)
+        is_loading = self.loading_label.isVisible()
+        for widget in self.interactive_widgets:
+            widget.setVisible(not is_loading)
+
+        if not is_loading:
+            self.new_image_button.setVisible(selected_count == 0)
+            self.mutate_button.setVisible(selected_count == 1)
+            self.slider_label.setVisible(selected_count == 2)
+            self.slider.setVisible(selected_count == 2)
+            self.split_button.setVisible(selected_count == 2)
+
+    @pyqtSlot(bool)
+    def update_loading(self, loading):
+        print("Loading changed:", loading)
+        self.loading_label.setVisible(loading)
+        if loading:
+            self.timer.start(300)
+        else:
+            self.timer.stop()
+            self.loading_dots = 0
+            self.loading_label.setText("Being generated by AI")
+        self.update_visibility(len(self._image_manager.selected_images))
+
+    @pyqtSlot()
+    def animate_loading(self):
+        dots = '.' * (self.loading_dots % 4)
+        self.loading_label.setText(f"Being generated by AI{dots}")
+        self.loading_dots += 1
 
 
 class ImageWindowTitleBar(QWidget):
@@ -310,12 +191,7 @@ class ImageWindowTitleBar(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.title = QLabel(self)
-        # Format as #000001, #000002, etc. when parsable as number or fallback to string
-        try:
-            number = int(name)
-            self.title.setText("IMAGE #{:06d}".format(number))
-        except ValueError:
-            self.title.setText(f"IMAGE {name}")
+        self.title.setText("IMAGE " + format_image_name(name))
         self.title.setStyleSheet("font-weight: bold; padding-left: 5px;")
 
         self.close_button = QPushButton("X", self)
@@ -374,13 +250,27 @@ class DraggableImageWindow(QMainWindow):
         pixmap = QPixmap(image_info.path)
         self.image.setPixmap(pixmap)
         self.image.setFixedSize(IMAGE_SIZE, IMAGE_SIZE)
+
         self.score_label = QLabel("Score: {:.2f}".format(image_info.score), self.central_widget)
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.score_label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        self.score_label.setStyleSheet("font-size: 24px; font-weight: bold; padding-top: 8px;")
+
+        parents_text = "Parent: "
+        if image_info.parent1 is not None:
+            parents_text += format_image_name(image_info.parent1.name)
+            if image_info.parent2 is not None:
+                parents_text += " + " + format_image_name(image_info.parent2.name)
+        else:
+            parents_text += "None"
+
+        self.parents_label = QLabel(parents_text, self.central_widget)
+        self.parents_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.parents_label.setStyleSheet("font-size: 12px; color: gray; margin-top: -12px;")
 
         self.layout.addWidget(self.title_bar)
         self.layout.addWidget(self.image)
         self.layout.addWidget(self.score_label)
+        self.layout.addWidget(self.parents_label)
 
         self.setProperty('selected', False)
         self.offset = None
@@ -464,44 +354,52 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self.frames = []
-        self.initUI()
+        self.initImages()
 
     # If needed to prevent closing
     # def closeEvent(self, event):
     #   event.ignore()
 
-    def initUI(self):
-        for image_path in TEST_IMAGES:
-            if os.path.exists(image_path):
-                frame = DraggableImageWindow(ImageInfo(None, image_path, random.normalvariate()), self._image_manager)
-                frame.setGeometry(self.getRandomRect())
-                frame.show()
-                frame.raise_()
-                self.frames.append(frame)
+    def initImages(self):
+        for _ in range(START_IMAGES):
+            self._image_manager.generate_image()
 
     def getRandomRect(self):
         """Tries to find a random rectangle that does not intersect with any of the existing frames in MAX_FIND_POSITION_TRIES
         attempts. Otherwise, just uses the random position."""
         for _ in range(MAX_FIND_POSITION_TRIES):
-            x = random.randint(0, self.width() - IMAGE_SIZE)
-            y = random.randint(0, self.height() - IMAGE_SIZE)
-            rect = QRect(x, y, IMAGE_SIZE, IMAGE_SIZE)
+            x = random.randint(0, self.width() - DRAGGABLE_WINDOW_WIDTH)
+            y = random.randint(0, self.height() - DRAGGABLE_WINDOW_HEIGHT)
+            rect = QRect(x, y, DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
 
             if not any(frame.geometry().intersects(rect) for frame in self.frames):
                 return rect
-        return QRect(random.randint(0, self.width() - IMAGE_SIZE), random.randint(0, self.height() - IMAGE_SIZE),
-                     IMAGE_SIZE, IMAGE_SIZE)
+        return QRect(random.randint(0, self.width() - DRAGGABLE_WINDOW_WIDTH), random.randint(0, self.height() - DRAGGABLE_WINDOW_HEIGHT),
+                     DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
 
     def getCenterFromRects(self, rect1, rect2):
         """Returns a QRect that is centered between two QRects but bounded in the main window."""
-        x = (rect1.x() + rect2.x()) / 2
-        y = (rect1.y() + rect2.y()) / 2
+        x = int((rect1.x() + rect2.x()) / 2)
+        y = int((rect1.y() + rect2.y()) / 2)
         # Check bounds
-        if x + IMAGE_SIZE > self.width():
-            x = self.width() - IMAGE_SIZE
-        if y + IMAGE_SIZE > self.height():
-            y = self.height() - IMAGE_SIZE
-        return QRect(x, y, IMAGE_SIZE, IMAGE_SIZE)
+        if x + DRAGGABLE_WINDOW_WIDTH > self.width():
+            x = self.width() - DRAGGABLE_WINDOW_WIDTH
+        if y + DRAGGABLE_WINDOW_HEIGHT > self.height():
+            y = self.height() - DRAGGABLE_WINDOW_HEIGHT
+        return QRect(x, y, DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
+
+    def getCloseRect(self, rect):
+        """Returns a QRect that is close to the given QRect."""
+        x = rect.x() + DRAGGABLE_WINDOW_WIDTH + 10  # 10 pixels to the right
+        y = rect.y()
+        if x + DRAGGABLE_WINDOW_WIDTH > self.width():
+            x = self.width() - DRAGGABLE_WINDOW_WIDTH
+        if y + DRAGGABLE_WINDOW_HEIGHT > self.height():
+            y = self.height() - DRAGGABLE_WINDOW_HEIGHT
+        return QRect(x, y, DRAGGABLE_WINDOW_HEIGHT, DRAGGABLE_WINDOW_HEIGHT)
+
+    def frameForImage(self, image_info: ImageInfo) -> DraggableImageWindow:
+        return next((f for f in self.frames if f.image_info == image_info), None)
 
     @pyqtSlot()
     def clear_all_images(self):
@@ -511,20 +409,26 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(ImageInfo)
     def on_image_added(self, image_info: ImageInfo):
+        print(f"Image added: {image_info.name}")
         frame = DraggableImageWindow(image_info, self._image_manager)
-        frame.setGeometry(self.getRandomRect())
+        if image_info.parent1 is not None:
+            parent1_frame = self.frameForImage(image_info.parent1)
+            if image_info.parent2 is not None:  # Child created
+                parent2_frame = self.frameForImage(image_info.parent2)
+                if parent1_frame is not None and parent2_frame is not None:
+                    frame.setGeometry(self.getCenterFromRects(parent1_frame.geometry(), parent2_frame.geometry()))
+            elif parent1_frame is not None:  # Mutated
+                frame.setGeometry(self.getCloseRect(parent1_frame.geometry()))
+        else:  # New image
+            frame.setGeometry(self.getRandomRect())
         frame.show()
         frame.raise_()
         self.frames.append(frame)
 
     @pyqtSlot(ImageInfo)
     def on_image_removed(self, image_info: ImageInfo):
-        to_close = []
-        for frame in list(self.frames):
-            if frame.image_info == image_info:
-                to_close.append(frame)
-
-        for frame in to_close:
+        frame = self.frameForImage(image_info)
+        if frame is not None:
             frame.close()
             self.frames.remove(frame)
 
