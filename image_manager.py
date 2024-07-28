@@ -24,10 +24,12 @@ def get_current_image_counter():
 
 
 class ImageInfo:
-    def __init__(self, arguments, path: str, score: float, parent1: 'ImageInfo' = None, parent2: 'ImageInfo' = None):
+    def __init__(self, arguments, path: str, score: float, selectable=True,
+                 parent1: 'ImageInfo' = None, parent2: 'ImageInfo' = None):
         self._arguments = arguments
         self._path = path
         self._score = score
+        self._selectable = selectable
         self._parent1 = parent1
         self._parent2 = parent2
         self._name = os.path.splitext(os.path.basename(path))[0]  # Filename without extension for display
@@ -45,6 +47,10 @@ class ImageInfo:
         return self._score
 
     @property
+    def selectable(self):
+        return self._selectable
+
+    @property
     def parent1(self):
         return self._parent1
 
@@ -56,8 +62,15 @@ class ImageInfo:
     def name(self):
         return self._name
 
+    @property
+    def filename(self):
+        return os.path.basename(self._path)
+
     def __eq__(self, other):
         return self.path == other.path
+
+    def __hash__(self):
+        return hash(self.path)
 
 
 class ImageManager(QObject):
@@ -163,7 +176,8 @@ class ImageManager(QObject):
                 image_filename = f"{get_current_image_counter()}.png"
                 image_path = os.path.join(IMAGE_LOCATION, image_filename)
                 image_data.result.images[0].save(image_path)
-                image_info = ImageInfo(embeds, image_path, image_data.fitness, parent1, parent2)
+                image_info = ImageInfo(arguments=embeds, path=image_path, score=image_data.fitness,
+                                       parent1=parent1, parent2=parent2)
                 self._add_or_replace_image(image_info)
                 self.isLoadingChanged.emit(False)
                 self._thread_finished()
@@ -190,6 +204,13 @@ class ImageManager(QObject):
         self._images.append(image_info)
         self.imageAdded.emit(image_info)
 
+    def manual_add_image(self, image_info: ImageInfo):
+        """
+        Manually adds an image to the manager if it does not already exist.
+        """
+        if image_info not in self._images:
+            self._add_or_replace_image(image_info)
+
     def generate_image(self):
         print("Generating new image")
         random_embeds = PooledPromptEmbedData(self.embedding_range.random_tensor_in_range(),
@@ -208,9 +229,10 @@ class ImageManager(QObject):
                         .crossover(parent1.arguments, parent2.arguments))
         self._schedule_create_image(child_embeds, parent1, parent2)
 
-    def remove_image(self, image_info: ImageInfo):  # May also remove image from disk
+    def remove_image(self, image_info: ImageInfo):  # May also remove image from disk in the future?
         print(f"Removing image {image_info.name}")
         if image_info in self._images:
+            self.unselect_image(image_info)
             self._images.remove(image_info)
             self.imageRemoved.emit(image_info)
 

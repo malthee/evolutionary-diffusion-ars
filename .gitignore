@@ -3,5 +3,6 @@
 
 /models/
 /results/
+/__pycache__/
 
 *.db

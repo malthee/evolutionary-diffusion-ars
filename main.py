@@ -3,45 +3,30 @@ import random
 import sys
 
 from PyQt6.QtCore import Qt, QRect, pyqtSlot, QTimer
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
     QSlider
 
 from image_manager import ImageInfo, ImageManager
+from image_window import DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT, DraggableImageWindow
+from info_window import InfoWindow
+from qr_blob_manager import QRBlobManager
 
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
 APP_VERSION = "0.1.0"
 START_IMAGES = 3
-IMAGE_SIZE = 275
-LABEL_HEIGHT = 70
-CUSTOM_TITLE_BAR_HEIGHT = 30
-DRAGGABLE_WINDOW_HEIGHT = IMAGE_SIZE + LABEL_HEIGHT + CUSTOM_TITLE_BAR_HEIGHT
-DRAGGABLE_WINDOW_WIDTH = IMAGE_SIZE
 MAX_FIND_POSITION_TRIES = 10
-DRAG_THRESHOLD = 10
-
-os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
-
-
-def format_image_name(name: str) -> str:
-    """
-    Format as #000001, #000002, etc. when parsable as number or fallback to string
-    """
-    try:
-        number = int(name)
-        return "#{:06d}".format(number)
-    except ValueError:
-        return f"{name}"
 
 
 class ImageMenu(QFrame):
-    def __init__(self, image_manager: ImageManager, parent=None):
+    def __init__(self, image_manager: ImageManager, qr_blob_manager: QRBlobManager, parent=None):
         super().__init__(parent)
         self._image_manager = image_manager
+        self._qr_blob_manager = qr_blob_manager
         self._image_manager.selectionCountChanged.connect(self.update_visibility)
         self._image_manager.isLoadingChanged.connect(self.update_loading)
-        self.setFixedSize(300, 200)
+        self.setFixedSize(310, 200)
         self.setStyleSheet("""
             QPushButton {
                 background-color: #777;
@@ -90,6 +75,10 @@ class ImageMenu(QFrame):
         self.mutate_button.clicked.connect(self.mutate_image)
         self.layout.addWidget(self.mutate_button)
 
+        self.qr_code_button = QPushButton("📷 Download QR Code")
+        self.qr_code_button.clicked.connect(self.upload_and_get_qr_code)
+        self.layout.addWidget(self.qr_code_button)
+
         self.slider_label = QLabel("🧑‍🧑‍🧒Parent Contribution")
         self.slider_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -119,6 +108,7 @@ class ImageMenu(QFrame):
         self.interactive_widgets = [
             self.new_image_button,
             self.mutate_button,
+            self.qr_code_button,
             self.slider_label,
             self.slider,
             self.split_button
@@ -127,7 +117,10 @@ class ImageMenu(QFrame):
         self.update_visibility(len(self._image_manager.selected_images))
 
     def closeEvent(self, event):
+        self._qr_blob_manager.qr_image_finished.disconnect(self._image_manager.manual_add_image)
         self._image_manager.selectionChanged.disconnect(self.update_visibility)
+        self._image_manager.isLoadingChanged.disconnect(self.update_loading)
+        self.timer.stop()
         event.accept()
 
     @pyqtSlot()
@@ -160,13 +153,18 @@ class ImageMenu(QFrame):
         if not is_loading:
             self.new_image_button.setVisible(selected_count == 0)
             self.mutate_button.setVisible(selected_count == 1)
+            self.qr_code_button.setVisible(selected_count == 1)
             self.slider_label.setVisible(selected_count == 2)
             self.slider.setVisible(selected_count == 2)
             self.split_button.setVisible(selected_count == 2)
 
+    @pyqtSlot()
+    def upload_and_get_qr_code(self):
+        image_info = self._image_manager.selected_images[0]
+        self._qr_blob_manager.start_upload(image_info)
+
     @pyqtSlot(bool)
     def update_loading(self, loading):
-        print("Loading changed:", loading)
         self.loading_label.setVisible(loading)
         if loading:
             self.timer.start(300)
@@ -183,168 +181,55 @@ class ImageMenu(QFrame):
         self.loading_dots += 1
 
 
-class ImageWindowTitleBar(QWidget):
-    def __init__(self, parent=None, name=""):
-        super().__init__(parent)
-        self.parent = parent
-        self.layout = QHBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-
-        self.title = QLabel(self)
-        self.title.setText("IMAGE " + format_image_name(name))
-        self.title.setStyleSheet("font-weight: bold; padding-left: 5px;")
-
-        self.close_button = QPushButton("X", self)
-        self.close_button.setFixedSize(CUSTOM_TITLE_BAR_HEIGHT, CUSTOM_TITLE_BAR_HEIGHT)
-        self.close_button.setStyleSheet("background-color: red; color: white; border: none;")
-        self.close_button.clicked.connect(self.close_window)
-
-        self.layout.addWidget(self.title)
-        self.layout.addStretch()
-        self.layout.addWidget(self.close_button)
-
-        self.setFixedHeight(CUSTOM_TITLE_BAR_HEIGHT)
-
-    def close_window(self):
-        self.parent.close()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.parent.offset = event.pos()
-
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.MouseButton.LeftButton:
-            delta = event.pos() - self.parent.offset
-            self.parent.move(self.parent.pos() + delta)
-
-
-class DraggableImageWindow(QMainWindow):
-    def __init__(self, image_info: ImageInfo, image_manager: ImageManager):
-        super().__init__()
-        self._image_info = image_info
-        self._image_manager = image_manager
-        self._image_manager.selectionChanged.connect(self.on_selection_changed)
-        self.setFixedSize(DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
-        # On top of the background, no frame as has custom title bar
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
-                            Qt.WindowType.Tool)
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #f0f0f0;
-            }
-            QMainWindow[selected="true"] {
-                background-color: lightblue;
-            }
-        """)
-
-        self.central_widget = QWidget(self)
-        self.setCentralWidget(self.central_widget)
-
-        self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setContentsMargins(0, 0, 0, 0)  # Remove margins, otherwise image is not centered
-        self.layout.setSpacing(0)
-
-        self.title_bar = ImageWindowTitleBar(self, image_info.name)
-        self.image = QLabel(self.central_widget)
-        self.image.setScaledContents(True)
-        pixmap = QPixmap(image_info.path)
-        self.image.setPixmap(pixmap)
-        self.image.setFixedSize(IMAGE_SIZE, IMAGE_SIZE)
-
-        self.score_label = QLabel("Score: {:.2f}".format(image_info.score), self.central_widget)
-        self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.score_label.setStyleSheet("font-size: 24px; font-weight: bold; padding-top: 8px;")
-
-        parents_text = "Parent: "
-        if image_info.parent1 is not None:
-            parents_text += format_image_name(image_info.parent1.name)
-            if image_info.parent2 is not None:
-                parents_text += " + " + format_image_name(image_info.parent2.name)
-        else:
-            parents_text += "None"
-
-        self.parents_label = QLabel(parents_text, self.central_widget)
-        self.parents_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.parents_label.setStyleSheet("font-size: 12px; color: gray; margin-top: -12px;")
-
-        self.layout.addWidget(self.title_bar)
-        self.layout.addWidget(self.image)
-        self.layout.addWidget(self.score_label)
-        self.layout.addWidget(self.parents_label)
-
-        self.setProperty('selected', False)
-        self.offset = None
-        self.start_pos = None  # For drag threshold
-
-    def closeEvent(self, event):
-        self._image_manager.unselect_image(self._image_info)
-        self._image_manager.selectionChanged.disconnect(self.on_selection_changed)
-        event.accept()
-
-    @property
-    def image_info(self):
-        return self._image_info
-
-    @pyqtSlot(ImageInfo, bool)
-    def on_selection_changed(self, image_info: ImageInfo, selected: bool):
-        if image_info == self._image_info:
-            self.setProperty('selected', selected)
-            self.style().polish(self)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.start_pos = event.globalPosition()
-            self.offset = event.pos()
-
-    def mouseMoveEvent(self, event):
-        if self.offset is not None and event.buttons() == Qt.MouseButton.LeftButton:
-            delta = event.pos() - self.offset
-            self.move(self.pos() + delta)
-
-    def mouseReleaseEvent(self, event):
-        if self.start_pos is not None:
-            distance = (event.globalPosition() - self.start_pos).manhattanLength()
-            if distance < DRAG_THRESHOLD:  # Do not select if user is dragging
-                if self.property('selected'):
-                    self._image_manager.unselect_image(self._image_info)
-                else:
-                    self._image_manager.select_image(self._image_info)
-            self.start_pos = None
-        self.offset = None
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._image_manager = ImageManager()
+        self._qr_blob_manager = QRBlobManager()
         self._image_manager.imageAdded.connect(self.on_image_added)
         self._image_manager.imageRemoved.connect(self.on_image_removed)
+        # Finished qr codes are added to the image manager
+        self._qr_blob_manager.qr_image_finished.connect(self._image_manager.manual_add_image)
 
         self.setWindowTitle(APP_NAME)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
                             Qt.WindowType.CustomizeWindowHint)
         self.showFullScreen()
 
+        button_style = """
+                    QPushButton {
+                        background-color: transparent;
+                        font-size: 48px;
+                        border: none;
+                        border-radius: 12px;
+                        margin: 10px;
+                    }
+                    QPushButton:hover {
+                        background-color: lightgray;
+                    }
+                """
+
+        # Create a helper method to create buttons with consistent styling and properties
+        def create_button(parent, text, tooltip, slot):
+            button = QPushButton(parent=parent, text=text)
+            button.setToolTip(tooltip)
+            button.setStyleSheet(button_style)
+            button.clicked.connect(slot)
+            return button
+
         corner_layout = QHBoxLayout()
+        corner_layout.setSpacing(0)
         corner_layout.addStretch()
-        self.trash_button = QPushButton(parent=self, text="🗑️")
-        self.trash_button.setToolTip("Clear all Images")
-        self.trash_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                font-size: 48px;
-                border: none;
-                border-radius: 12px;
-                margin: 10px;
-            }
-            QPushButton:hover {
-                background-color: lightgray;
-            }
-        """)
-        self.trash_button.clicked.connect(self.clear_all_images)
+        # self.uk_button = create_button(self, "🇬🇧", "English (UK)", lambda: self.change_language("en"))
+        # corner_layout.addWidget(self.uk_button)
+        # self.austria_button = create_button(self, "🇦🇹", "German (Austria)", lambda: self.change_language("de"))
+        # corner_layout.addWidget(self.austria_button)
+        self.info_button = create_button(self, "ℹ️", "Information", self.show_info)
+        corner_layout.addWidget(self.info_button)
+        self.trash_button = create_button(self, "🗑️", "Clear all Images", self.clear_all_images)
         corner_layout.addWidget(self.trash_button)
 
-        self.image_menu = ImageMenu(self._image_manager, self)
+        self.image_menu = ImageMenu(self._image_manager, self._qr_blob_manager, self)
         main_layout = QVBoxLayout()
         main_layout.addLayout(corner_layout)
         central_widget = QWidget()
@@ -354,17 +239,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self.frames = []
-        self.initImages()
+        self.info_window = None
+        self._initImages()
 
     # If needed to prevent closing
     # def closeEvent(self, event):
     #   event.ignore()
 
-    def initImages(self):
+    def _initImages(self):
         for _ in range(START_IMAGES):
             self._image_manager.generate_image()
 
-    def getRandomRect(self):
+    def _getRandomRect(self):
         """Tries to find a random rectangle that does not intersect with any of the existing frames in MAX_FIND_POSITION_TRIES
         attempts. Otherwise, just uses the random position."""
         for _ in range(MAX_FIND_POSITION_TRIES):
@@ -377,7 +263,7 @@ class MainWindow(QMainWindow):
         return QRect(random.randint(0, self.width() - DRAGGABLE_WINDOW_WIDTH), random.randint(0, self.height() - DRAGGABLE_WINDOW_HEIGHT),
                      DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
 
-    def getCenterFromRects(self, rect1, rect2):
+    def _getCenterFromRects(self, rect1, rect2):
         """Returns a QRect that is centered between two QRects but bounded in the main window."""
         x = int((rect1.x() + rect2.x()) / 2)
         y = int((rect1.y() + rect2.y()) / 2)
@@ -388,7 +274,7 @@ class MainWindow(QMainWindow):
             y = self.height() - DRAGGABLE_WINDOW_HEIGHT
         return QRect(x, y, DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
 
-    def getCloseRect(self, rect):
+    def _getCloseRect(self, rect):
         """Returns a QRect that is close to the given QRect."""
         x = rect.x() + DRAGGABLE_WINDOW_WIDTH + 10  # 10 pixels to the right
         y = rect.y()
@@ -398,8 +284,33 @@ class MainWindow(QMainWindow):
             y = self.height() - DRAGGABLE_WINDOW_HEIGHT
         return QRect(x, y, DRAGGABLE_WINDOW_HEIGHT, DRAGGABLE_WINDOW_HEIGHT)
 
-    def frameForImage(self, image_info: ImageInfo) -> DraggableImageWindow:
+    def _frameForImage(self, image_info: ImageInfo) -> DraggableImageWindow:
         return next((f for f in self.frames if f.image_info == image_info), None)
+
+    @pyqtSlot(ImageInfo)
+    def on_image_added(self, image_info: ImageInfo):
+        print(f"Image added: {image_info.name}")
+        frame = DraggableImageWindow(image_info, self._image_manager)
+        if image_info.parent1 is not None:
+            parent1_frame = self._frameForImage(image_info.parent1)
+            if image_info.parent2 is not None:  # Child created
+                parent2_frame = self._frameForImage(image_info.parent2)
+                if parent1_frame is not None and parent2_frame is not None:
+                    frame.setGeometry(self._getCenterFromRects(parent1_frame.geometry(), parent2_frame.geometry()))
+            elif parent1_frame is not None:  # Mutated
+                frame.setGeometry(self._getCloseRect(parent1_frame.geometry()))
+        else:  # New image
+            frame.setGeometry(self._getRandomRect())
+        frame.show()
+        frame.raise_()
+        self.frames.append(frame)
+
+    @pyqtSlot(ImageInfo)
+    def on_image_removed(self, image_info: ImageInfo):
+        frame = self._frameForImage(image_info)
+        if frame is not None:
+            frame.close()
+            self.frames.remove(frame)
 
     @pyqtSlot()
     def clear_all_images(self):
@@ -407,30 +318,16 @@ class MainWindow(QMainWindow):
         for frame in self.frames:
             frame.close()
 
-    @pyqtSlot(ImageInfo)
-    def on_image_added(self, image_info: ImageInfo):
-        print(f"Image added: {image_info.name}")
-        frame = DraggableImageWindow(image_info, self._image_manager)
-        if image_info.parent1 is not None:
-            parent1_frame = self.frameForImage(image_info.parent1)
-            if image_info.parent2 is not None:  # Child created
-                parent2_frame = self.frameForImage(image_info.parent2)
-                if parent1_frame is not None and parent2_frame is not None:
-                    frame.setGeometry(self.getCenterFromRects(parent1_frame.geometry(), parent2_frame.geometry()))
-            elif parent1_frame is not None:  # Mutated
-                frame.setGeometry(self.getCloseRect(parent1_frame.geometry()))
-        else:  # New image
-            frame.setGeometry(self.getRandomRect())
-        frame.show()
-        frame.raise_()
-        self.frames.append(frame)
+    @pyqtSlot()
+    def show_info(self):
+        if self.info_window is None:
+            self.info_window = InfoWindow()
+        self.info_window.show()
+        self.info_window.raise_()
 
-    @pyqtSlot(ImageInfo)
-    def on_image_removed(self, image_info: ImageInfo):
-        frame = self.frameForImage(image_info)
-        if frame is not None:
-            frame.close()
-            self.frames.remove(frame)
+    @pyqtSlot(str)
+    def change_language(self, language):
+        print(f"Change language to {language}")  # TODO maybe language selection
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -438,6 +335,7 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == '__main__':
+    os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(APP_ICON))
     app.setApplicationName(APP_NAME)
