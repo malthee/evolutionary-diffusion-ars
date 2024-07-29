@@ -12,7 +12,8 @@ BLOB_CONTAINER_NAME = os.environ.get("ED_BLOB_CONTAINER_NAME")
 BLOB_KEY = os.environ.get("ED_BLOB_KEY")
 BLOB_URL = os.environ.get("ED_BLOB_URL")
 
-if BLOB_CONTAINER_NAME is None or BLOB_KEY is None or BLOB_URL is None:
+
+if any(var is None or var.strip() == "" for var in [BLOB_CONTAINER_NAME, BLOB_KEY, BLOB_URL]):
     raise ValueError("ED_BLOB_CONTAINER_NAME, ED_BLOB_KEY, ED_BLOB_URL must be set in environment variables.")
 
 
@@ -56,7 +57,7 @@ class QRBlobManager(QObject):
             try:
                 container_client = client.get_container_client(container=BLOB_CONTAINER_NAME)
                 with open(file=input_image.path, mode="rb") as data:
-                    container_client = container_client.upload_blob(input_image.filename, data)
+                    container_client = container_client.upload_blob(input_image.filename, data, overwrite=True)
                 image_url = container_client.url
                 qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_Q)
                 # High error correct for embedded image

@@ -3,7 +3,7 @@ import random
 import sys
 
 from PyQt6.QtCore import Qt, QRect, pyqtSlot, QTimer
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
     QSlider
 
@@ -195,6 +195,10 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.CustomizeWindowHint)
         self.showFullScreen()
 
+        # Set the background color to light gray
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#e4e4e4"))  
+        self.setPalette(palette)
         button_style = """
                     QPushButton {
                         background-color: transparent;
