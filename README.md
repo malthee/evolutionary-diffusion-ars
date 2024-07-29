@@ -8,6 +8,10 @@ Complementary to the https://github.com/malthee/evolutionary-diffusion repositor
 ## Installation
 Install the `requirements.txt` with `pip install -r requirements.txt`.
 
-Required Environment Variables:
+Windows needs additional special treatment for the `pytorch` package. https://pytorch.org/get-started/locally/#start-locally  
+Ex: `pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124`
+
+Required Environment Variables. Can be provided in a `.env` file in the root of the project:
+* ED_BLOB_CONTAINER_NAME - Azure Blob Storage Container Name
 * ED_BLOB_KEY - Azure Blob Storage Key
 * ED_BLOB_URL - Azure Blob Storage URL

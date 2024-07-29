@@ -4,3 +4,4 @@ evolutionary[all] @ git+https://git@github.com/malthee/evolutionary-diffusion.gi
 qrcode~=7.4.2
 pillow~=10.4.0
 azure-storage-blob~=12.21.0
+python-dotenv~=1.0.1

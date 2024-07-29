@@ -66,8 +66,7 @@ class DraggableImageWindow(QMainWindow):
         self._image_manager.selectionChanged.connect(self.on_selection_changed)
         self.setFixedSize(DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT)
         # On top of the background, no frame as has custom title bar
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
-                            Qt.WindowType.Tool)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #f0f0f0;

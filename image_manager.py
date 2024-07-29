@@ -107,7 +107,7 @@ class ImageManager(QObject):
         logging.set_verbosity_error()
         os.mkdir(IMAGE_LOCATION) if not os.path.exists(IMAGE_LOCATION) else None
         self.imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=4, batch_size=1, deterministic=True)
-        self.evaluator = AestheticsImageEvaluator()
+        self.evaluator = AestheticsImageEvaluator(device="cpu")  # Force CPU for windows compatibility, CUDA causes errors
         self.embedding_range = SDXLTurboEmbeddingRange()
         self.pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
         self.mutation_arguments = UniformGaussianMutatorArguments(mutation_rate=0.005, mutation_strength=0.01,

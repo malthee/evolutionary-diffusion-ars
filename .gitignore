@@ -6,3 +6,6 @@
 /__pycache__/
 
 *.db
+*.bak
+*.dat
+*.dir

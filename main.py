@@ -26,7 +26,7 @@ class ImageMenu(QFrame):
         self._qr_blob_manager = qr_blob_manager
         self._image_manager.selectionCountChanged.connect(self.update_visibility)
         self._image_manager.isLoadingChanged.connect(self.update_loading)
-        self.setFixedSize(310, 200)
+        self.setFixedSize(330, 200)
         self.setStyleSheet("""
             QPushButton {
                 background-color: #777;
@@ -79,7 +79,7 @@ class ImageMenu(QFrame):
         self.qr_code_button.clicked.connect(self.upload_and_get_qr_code)
         self.layout.addWidget(self.qr_code_button)
 
-        self.slider_label = QLabel("🧑‍🧑‍🧒Parent Contribution")
+        self.slider_label = QLabel("👭 Parent Contribution")
         self.slider_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setMinimum(0)
@@ -192,8 +192,7 @@ class MainWindow(QMainWindow):
         self._qr_blob_manager.qr_image_finished.connect(self._image_manager.manual_add_image)
 
         self.setWindowTitle(APP_NAME)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint |
-                            Qt.WindowType.CustomizeWindowHint)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.CustomizeWindowHint)
         self.showFullScreen()
 
         button_style = """
