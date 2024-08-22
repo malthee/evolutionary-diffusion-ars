@@ -98,7 +98,7 @@ class ImageMenu(QFrame):
         self.slider.setMaximum(100)
         self.slider.setValue(50)
 
-        self.split_button = QPushButton("👶 Create Child")
+        self.split_button = QPushButton("🔗 Mix Traits")
         self.split_button.clicked.connect(self.create_child)
 
         # Inner layout for the two images and slider

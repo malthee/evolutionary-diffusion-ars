@@ -106,7 +106,7 @@ class ImageManager(QObject):
         logging.disable_progress_bar()  # Or else your output will be full of progress bars
         logging.set_verbosity_error()
         os.mkdir(IMAGE_LOCATION) if not os.path.exists(IMAGE_LOCATION) else None
-        self.imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=4, batch_size=1, deterministic=True)
+        self.imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=3, batch_size=1, deterministic=True)
         self.evaluator = AestheticsImageEvaluator(device="cpu")  # Force CPU for windows compatibility, CUDA causes errors
         self.embedding_range = SDXLTurboEmbeddingRange()
         self.pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
