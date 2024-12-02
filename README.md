@@ -7,9 +7,9 @@ Complementary to the https://github.com/malthee/evolutionary-diffusion repositor
 
 ## Installation
 1. Install Python https://www.python.org/downloads/
-2. Navigate to the `evolutionary-diffusion-ars` folder and install the `requirements.txt` with `pip install -r requirements.txt`.
-3. (CUDA, Windows only) Windows needs additional special treatment for the `pytorch` package. For windows using CUDA, execute `_windows_install.bat`. 
-4. Define the `.env` variables
+2. (CUDA, Windows only) Windows needs additional special treatment for the `pytorch` package. For windows using CUDA, execute `_windows_install.bat`. 
+2. (Others only) Navigate to the `evolutionary-diffusion-ars` folder and install the `requirements.txt` with `pip install -r requirements.txt`.
+3. Define the `.env` variables
 
 Required Environment Variables. Can be provided in a `.env` file in the root of the project:
 * ED_BLOB_CONTAINER_NAME - Azure Blob Storage Container Name
