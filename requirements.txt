@@ -1,5 +1,5 @@
 PyQt6~=6.7.1
-diffusers~=0.26.3
+diffusers~=0.31.0
 evolutionary[all] @ git+https://git@github.com/malthee/evolutionary-diffusion.git
 qrcode~=7.4.2
 pillow~=10.4.0

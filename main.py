@@ -1,5 +1,6 @@
 import os
 import random
+import torch
 import sys
 
 from PyQt6.QtCore import Qt, QRect, pyqtSlot, QTimer
@@ -226,7 +227,7 @@ class MainWindow(QMainWindow):
 
         # Set the background color to light gray
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor("#e4e4e4"))  
+        palette.setColor(QPalette.ColorRole.Window, QColor("#e0e0e0"))
         self.setPalette(palette)
         button_style = """
                     QPushButton {
@@ -365,9 +366,18 @@ class MainWindow(QMainWindow):
         if event.button() == Qt.MouseButton.LeftButton:
             self._image_manager.unselect_all()
 
+def check_device():
+    if torch.cuda.is_available():
+        print("CUDA is available.")
+    elif torch.backends.mps.is_available():
+        print("MPS is available.")
+    else:
+        print("CUDA and MPS are not available. Using CPU. (NOT RECOMMENDED)")
+
 
 if __name__ == '__main__':
     os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
+    check_device()
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(APP_ICON))
     app.setApplicationName(APP_NAME)

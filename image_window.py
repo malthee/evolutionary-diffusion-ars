@@ -90,7 +90,7 @@ class DraggableImageWindow(QMainWindow):
         self.image.setPixmap(pixmap)
         self.image.setFixedSize(IMAGE_SIZE, IMAGE_SIZE)
 
-        self.score_label = QLabel("Score: {:.2f}".format(image_info.score), self.central_widget)
+        self.score_label = QLabel("Aesthetic Score: {:.2f}".format(image_info.score), self.central_widget)
         self.score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.score_label.setStyleSheet("font-size: 24px; font-weight: bold; padding-top: 8px;")
 

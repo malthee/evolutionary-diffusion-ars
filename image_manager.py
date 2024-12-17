@@ -16,6 +16,8 @@ SHELVE = "evolutionary_diffusion_shelve"
 IMAGE_COUNTER = "image_counter"
 IMAGE_LOCATION = "results"
 MAX_IMAGES = 10
+MUTATION_RATE = 0.005
+MUTATION_STRENGTH = 0.0005
 
 
 def get_current_image_counter():
@@ -110,10 +112,10 @@ class ImageManager(QObject):
         self.evaluator = AestheticsImageEvaluator(device="cpu")  # Force CPU for windows compatibility, CUDA causes errors
         self.embedding_range = SDXLTurboEmbeddingRange()
         self.pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
-        self.mutation_arguments = UniformGaussianMutatorArguments(mutation_rate=0.005, mutation_strength=0.01,
+        self.mutation_arguments = UniformGaussianMutatorArguments(mutation_rate=MUTATION_RATE, mutation_strength=MUTATION_STRENGTH,
                                                                   clamp_range=(self.embedding_range.minimum,
                                                                                self.embedding_range.maximum))
-        self.mutation_arguments_pooled = UniformGaussianMutatorArguments(mutation_rate=0.005, mutation_strength=0.05,
+        self.mutation_arguments_pooled = UniformGaussianMutatorArguments(mutation_rate=MUTATION_RATE, mutation_strength=MUTATION_STRENGTH,
                                                                          clamp_range=(
                                                                              self.pooled_embedding_range.minimum,
                                                                              self.pooled_embedding_range.maximum))
