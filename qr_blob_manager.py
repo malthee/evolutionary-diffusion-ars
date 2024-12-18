@@ -1,21 +1,14 @@
 import os
 import qrcode
-from dotenv import load_dotenv
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
 from azure.storage.blob import BlobServiceClient
 from qrcode.image.styledpil import StyledPilImage
 
 from image_manager import ImageInfo, IMAGE_LOCATION
 
-load_dotenv()  # Load environment variables from .env file
 BLOB_CONTAINER_NAME = os.environ.get("ED_BLOB_CONTAINER_NAME")
 BLOB_KEY = os.environ.get("ED_BLOB_KEY")
 BLOB_URL = os.environ.get("ED_BLOB_URL")
-
-
-if any(var is None or var.strip() == "" for var in [BLOB_CONTAINER_NAME, BLOB_KEY, BLOB_URL]):
-    raise ValueError("ED_BLOB_CONTAINER_NAME, ED_BLOB_KEY, ED_BLOB_URL must be set in environment variables.")
-
 
 class QRBlobManager(QObject):
     """
@@ -24,6 +17,9 @@ class QRBlobManager(QObject):
     qr_image_finished = pyqtSignal(ImageInfo)
 
     def __init__(self):
+        if any(var is None or var.strip() == "" for var in [BLOB_CONTAINER_NAME, BLOB_KEY, BLOB_URL]):
+            raise ValueError("ED_BLOB_CONTAINER_NAME, ED_BLOB_KEY, ED_BLOB_URL must be set in environment variables.")
+
         super().__init__()
 
         # Thread management

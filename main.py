@@ -7,20 +7,22 @@ from PyQt6.QtCore import Qt, QRect, pyqtSlot, QTimer
 from PyQt6.QtGui import QIcon, QColor, QPalette, QPixmap
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
     QSlider
+from dotenv import load_dotenv
 
 from image_manager import ImageInfo, ImageManager
 from image_window import DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT, DraggableImageWindow
 from info_window import InfoWindow
 from qr_blob_manager import QRBlobManager
+from sklera_inactivity_manager import SkleraInactivityManager
 
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 START_IMAGES = 3
 MAX_FIND_POSITION_TRIES = 10
 IMAGE_EXAMPLE_SIZE = 80
-MENU_WIDTH = 350
-MENU_HEIGHT = 250
+MENU_WIDTH = 400
+MENU_HEIGHT = 300
 
 
 class ImageMenu(QFrame):
@@ -363,6 +365,7 @@ class MainWindow(QMainWindow):
         print(f"Change language to {language}")  # TODO maybe language selection
 
     def mousePressEvent(self, event):
+        print('MOUSE PRESSED')
         if event.button() == Qt.MouseButton.LeftButton:
             self._image_manager.unselect_all()
 
@@ -376,13 +379,18 @@ def check_device():
 
 
 if __name__ == '__main__':
+    load_dotenv()  # Load environment variables from .env file
     os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
     check_device()
+
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon(APP_ICON))
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
+    if os.environ.get("SKLERA_ENABLED") == True:
+        sklera_inactivity_manager = SkleraInactivityManager()
+        app.installEventFilter(sklera_inactivity_manager)
     mainWindow = MainWindow()
     mainWindow.show()
     sys.exit(app.exec())
