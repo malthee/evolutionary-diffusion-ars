@@ -17,7 +17,7 @@ class QRBlobManager(QObject):
     qr_image_finished = pyqtSignal(ImageInfo)
 
     def __init__(self):
-        if any(var is None or var.strip() == "" for var in [BLOB_CONTAINER_NAME, BLOB_KEY, BLOB_URL]):
+        if any(var is None or (isinstance(var, str) and var.strip() == "") for var in [BLOB_CONTAINER_NAME, BLOB_KEY, BLOB_URL]):
             raise ValueError("ED_BLOB_CONTAINER_NAME, ED_BLOB_KEY, ED_BLOB_URL must be set in environment variables.")
 
         super().__init__()

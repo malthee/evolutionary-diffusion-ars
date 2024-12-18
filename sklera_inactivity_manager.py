@@ -1,4 +1,5 @@
 import os
+from urllib.error import HTTPError
 
 import requests
 from PyQt6.QtCore import QObject, QEvent, QTimer
@@ -13,7 +14,7 @@ BACKOFF_FACTOR = 2
 class SkleraInactivityManager(QObject):
     def __init__(self):
         super().__init__()
-        if any(var is None or var.strip() == "" for var in [SKLERA_TIMEOUT_MS, SKLERA_API_TOKEN, SKLERA_SCREEN_ID, SKLERA_MAX_RETRIES, SKLERA_API_URL]):
+        if any(var is None or (isinstance(var, str) and var.strip() == "") for var in [SKLERA_TIMEOUT_MS, SKLERA_API_TOKEN, SKLERA_SCREEN_ID, SKLERA_MAX_RETRIES, SKLERA_API_URL]):
             raise ValueError("SKLERA_API_TOKEN and SKLERA_SCREEN_ID is required and may not be empty. Other SKLERA environment variables are optional but may also not be empty when defined.")
 
         self.timeout = SKLERA_TIMEOUT_MS
@@ -32,7 +33,7 @@ class SkleraInactivityManager(QObject):
             self.timer.stop()
         self.timer.start()
 
-    def _send_sklera_hide_command(self, attempt=1):
+    def _send_sklera_hide_command(self):
         headers = {
             "apiToken": SKLERA_API_TOKEN,
             "Content-Type": "application/json"
@@ -45,14 +46,10 @@ class SkleraInactivityManager(QObject):
         try:
             response = requests.post(SKLERA_API_URL, json=payload, headers=headers)
             response.raise_for_status()  # Raise an exception for HTTP errors
-            print(f"App hide attempt {attempt}: Command successful.")
-        except requests.exceptions.RequestException as e:
-            print(f"App hide attempt {attempt}: Error occurred: {e}")
-            if attempt < SKLERA_MAX_RETRIES:
-                sleep_time = (BACKOFF_FACTOR ** (attempt - 1)) * 5000
-                QTimer.singleShot(sleep_time, self._send_sklera_hide_command, attempt + 1)
-            else:
-                print(f"App hide attempt {attempt}: Max retries reached. Command failed.")
+            self.timer.stop()
+            print(f"App hide attempt: Command successful.")
+        except Exception as e:
+            print(f"App hide attempt: Unexpected error occurred: {e}")
 
     def _handle_inactivity(self):
         print("User inactive for", self.timeout / 1000, "seconds.")
