@@ -7,14 +7,13 @@ from PyQt6.QtCore import QObject, QEvent, QTimer
 SKLERA_TIMEOUT_MS = os.environ.get("SKLERA_TIMEOUT_MS", 30000)
 SKLERA_API_TOKEN = os.environ.get("SKLERA_API_TOKEN")
 SKLERA_SCREEN_ID = os.environ.get("SKLERA_SCREEN_ID")
-SKLERA_MAX_RETRIES = os.environ.get("SKLERA_MAX_RETRIES", 3)
 SKLERA_API_URL = os.environ.get("SKLERA_API_URL", "https://my.sklera.tv/data/api/screens/sendCmd")
 BACKOFF_FACTOR = 2
 
 class SkleraInactivityManager(QObject):
     def __init__(self):
         super().__init__()
-        if any(var is None or (isinstance(var, str) and var.strip() == "") for var in [SKLERA_TIMEOUT_MS, SKLERA_API_TOKEN, SKLERA_SCREEN_ID, SKLERA_MAX_RETRIES, SKLERA_API_URL]):
+        if any(var is None or (isinstance(var, str) and var.strip() == "") for var in [SKLERA_TIMEOUT_MS, SKLERA_API_TOKEN, SKLERA_SCREEN_ID, SKLERA_API_URL]):
             raise ValueError("SKLERA_API_TOKEN and SKLERA_SCREEN_ID is required and may not be empty. Other SKLERA environment variables are optional but may also not be empty when defined.")
 
         self.timeout = SKLERA_TIMEOUT_MS

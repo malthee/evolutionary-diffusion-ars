@@ -1,3 +1,4 @@
+import os
 import random
 
 from PyQt6.QtCore import Qt, QRect, pyqtSlot
@@ -12,6 +13,7 @@ from qr_blob_manager import QRBlobManager
 
 START_IMAGES = 3
 MAX_FIND_POSITION_TRIES = 10
+BACKGROUND_COLOR = os.getenv("BACKGROUND_COLOR", "#e0e0e0")
 
 class MainWindow(QMainWindow):
     def __init__(self, app_name):
@@ -29,12 +31,12 @@ class MainWindow(QMainWindow):
 
         # Set the background color to light gray
         palette = self.palette()
-        palette.setColor(QPalette.ColorRole.Window, QColor("#e0e0e0"))
+        palette.setColor(QPalette.ColorRole.Window, QColor(BACKGROUND_COLOR))
         self.setPalette(palette)
         button_style = """
                     QPushButton {
                         background-color: transparent;
-                        font-size: 48px;
+                        font-size: 56px;
                         border: none;
                         border-radius: 12px;
                         margin: 10px;
