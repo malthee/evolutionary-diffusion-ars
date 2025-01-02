@@ -39,7 +39,7 @@ class SkleraInactivityManager(QObject):
         }
         payload = {
             "id": SKLERA_SCREEN_ID,
-            "cmd": "app_hide"
+            "cmd": "app_show"
         }
 
         try:
