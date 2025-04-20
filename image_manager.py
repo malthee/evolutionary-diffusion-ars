@@ -1,7 +1,7 @@
 import os
 import shelve
 from queue import Queue
-from typing import List
+from typing import List, Optional
 
 from PyQt6.QtCore import pyqtSlot, QObject, pyqtSignal, QThread, QMutex
 from diffusers.utils import logging
@@ -213,10 +213,16 @@ class ImageManager(QObject):
         if image_info not in self._images:
             self._add_or_replace_image(image_info)
 
-    def generate_image(self):
-        print("Generating new image")
+    def generate_image(self, style: Optional[str] = None, weight: Optional[float] = None):
+        """Genernates a new image using the evolutionary diffusion library, optionally with a style and weight."""
+        print("Generating new image. Style:", style, "Weight:", weight)
         random_embeds = PooledPromptEmbedData(self.embedding_range.random_tensor_in_range(),
                                               self.pooled_embedding_range.random_tensor_in_range())
+        if style is not None:
+            style_embeds = self.imageCreator.arguments_from_prompt(f"in the style of {style}")
+            random_embeds = (PooledArithmeticCrossover(interpolation_weight=weight, interpolation_weight_pooled=weight)
+                        .crossover(style_embeds, random_embeds))
+        # TODO improve performance
         self._schedule_create_image(random_embeds)
 
     def mutate_image(self, image_info: ImageInfo):

@@ -1,7 +1,7 @@
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
-    QSlider
+    QSlider, QComboBox
 
 from image_manager import ImageManager
 from qr_blob_manager import QRBlobManager
@@ -9,6 +9,37 @@ from qr_blob_manager import QRBlobManager
 MENU_WIDTH = 400
 MENU_HEIGHT = 300
 IMAGE_EXAMPLE_SIZE = 80
+STYLE_WEIGHT = 0.95
+AVAILABLE_STYLES = [
+    "Random",
+    "Renaissance",
+    "Baroque",
+    "Impressionism",
+    "Post-Impressionism",
+    "Cubism",
+    "Surrealism",
+    "Pop Art",
+    "Abstract Expressionism",
+    "Modernism",
+    "Fauvism",
+    "Pointillism",
+    "Minimalism",
+    "Digital Art",
+    "Street Art",
+    # INDIVIDUAL ARTISTS
+    "Leonardo da Vinci",
+    "Vincent van Gogh",
+    "Pablo Picasso",
+    "Claude Monet",
+    "Salvador Dalí",
+    "Andy Warhol",
+    "Jackson Pollock",
+    "Henri Matisse",
+    "Frida Kahlo",
+    "Banksy",
+    "Jean-Michel Basquiat",
+]
+
 
 class ImageMenu(QFrame):
     def __init__(self, image_manager: ImageManager, qr_blob_manager: QRBlobManager, parent=None):
@@ -51,6 +82,38 @@ class ImageMenu(QFrame):
                 font-size: 24px;
                 padding: 5px;
             }
+            QComboBox {
+                background-color: white;
+                color: #333;
+                border: none;
+                border-radius: 25px;
+                font-size: 24px;
+                padding: 0 16px;               /* vertical padding removed */
+                min-height: 56px;             /* exactly button height */
+            }
+            QComboBox:hover {
+                background-color: #f2f2f2;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: 40px;                /* comfortable tap area */
+                border-left: none;
+            }
+            QComboBox::down-arrow {
+              image: url("assets/down-arrow-gray.svg");
+              width: 20px;
+              height: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background: white;
+                selection-background-color: #ddd;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+              min-height: 48px;            /* big items for touch */
+              padding: 0 12px;
+            }
         """)
 
         self.layout = QVBoxLayout(self)
@@ -58,7 +121,13 @@ class ImageMenu(QFrame):
         self.layout.setContentsMargins(20, 20, 20, 20)
         self.layout.setSpacing(10)
 
-        # None selected, new image
+        # None selected, new image with optional style
+        self.style_combo = QComboBox()
+        self.style_combo.addItems(AVAILABLE_STYLES)
+        # force full width pill
+        self.style_combo.setMinimumWidth(MENU_WIDTH - 40)
+        self.layout.addWidget(self.style_combo)
+
         self.new_image_button = QPushButton("+ New Image")
         self.new_image_button.clicked.connect(self.new_image)
         self.layout.addWidget(self.new_image_button)
@@ -115,6 +184,7 @@ class ImageMenu(QFrame):
         self.loading_dots = 0
 
         self.interactive_widgets = [
+            self.style_combo,
             self.new_image_button,
             self.mutate_button,
             self.qr_code_button,
@@ -133,7 +203,10 @@ class ImageMenu(QFrame):
 
     @pyqtSlot()
     def new_image(self):
-        self._image_manager.generate_image()
+        style = self.style_combo.currentText()
+        if style == "Random" or style == "":
+            style = None
+        self._image_manager.generate_image(style=style, weight=STYLE_WEIGHT)
 
     @pyqtSlot()
     def mutate_image(self):
@@ -162,6 +235,7 @@ class ImageMenu(QFrame):
             none_selected = selected_count == 0
             one_selected = selected_count == 1
             two_selected = selected_count == 2
+            self.style_combo.setVisible(none_selected)
             self.new_image_button.setVisible(none_selected)
             self.mutate_button.setVisible(one_selected)
             self.qr_code_button.setVisible(one_selected)
