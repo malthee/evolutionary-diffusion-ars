@@ -16,11 +16,16 @@ class SkleraInactivityManager(QObject):
         if any(var is None or (isinstance(var, str) and var.strip() == "") for var in [SKLERA_TIMEOUT_MS, SKLERA_API_TOKEN, SKLERA_SCREEN_ID, SKLERA_API_URL]):
             raise ValueError("SKLERA_API_TOKEN and SKLERA_SCREEN_ID is required and may not be empty. Other SKLERA environment variables are optional but may also not be empty when defined.")
 
-        self.timeout = SKLERA_TIMEOUT_MS
+        self.timeout = int(SKLERA_TIMEOUT_MS)
         self.timer = QTimer()
         self.timer.setInterval(self.timeout)
         self.timer.timeout.connect(self._handle_inactivity)
         self.timer.start()
+        self._currently_hidden = False
+
+    @property
+    def currently_hidden(self) -> bool:
+        return self._currently_hidden
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress):
@@ -28,6 +33,7 @@ class SkleraInactivityManager(QObject):
         return super().eventFilter(obj, event)
 
     def _reset_timer(self):
+        self._currently_hidden = False
         if self.timer.isActive():
             self.timer.stop()
         self.timer.start()
@@ -52,4 +58,5 @@ class SkleraInactivityManager(QObject):
 
     def _handle_inactivity(self):
         print("User inactive for", self.timeout / 1000, "seconds.")
+        self._currently_hidden = True
         self._send_sklera_hide_command()

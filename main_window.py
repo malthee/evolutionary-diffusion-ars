@@ -1,5 +1,6 @@
 import os
 import random
+from typing import Optional
 
 from PyQt6.QtCore import Qt, QRect, pyqtSlot
 from PyQt6.QtGui import QColor, QPalette
@@ -10,14 +11,16 @@ from image_menu import ImageMenu
 from image_window import DRAGGABLE_WINDOW_WIDTH, DRAGGABLE_WINDOW_HEIGHT, DraggableImageWindow
 from info_window import InfoWindow
 from qr_blob_manager import QRBlobManager
+from sklera_inactivity_manager import SkleraInactivityManager
 
 START_IMAGES = 3
 MAX_FIND_POSITION_TRIES = 10
 BACKGROUND_COLOR = os.getenv("BACKGROUND_COLOR", "#e0e0e0")
 
 class MainWindow(QMainWindow):
-    def __init__(self, app_name):
+    def __init__(self, app_name, inactivity_manager: Optional[SkleraInactivityManager] = None):
         super().__init__()
+        self._inactivity_manager = inactivity_manager
         self._image_manager = ImageManager()
         self._qr_blob_manager = QRBlobManager()
         self._image_manager.imageAdded.connect(self.on_image_added)
@@ -127,6 +130,11 @@ class MainWindow(QMainWindow):
     @pyqtSlot(ImageInfo)
     def on_image_added(self, image_info: ImageInfo):
         print(f"Image added: {image_info.name}")
+        # Prevent showing a new image on top when the app is hidden
+        if self._inactivity_manager is not None and self._inactivity_manager.currently_hidden:
+            print("Not showing image, app currently hidden.")
+            return
+
         frame = DraggableImageWindow(image_info, self._image_manager)
         if image_info.parent1 is not None:
             parent1_frame = self._frameForImage(image_info.parent1)

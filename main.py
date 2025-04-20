@@ -35,9 +35,10 @@ if __name__ == '__main__':
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
+    sklera_inactivity_manager = None
     if os.environ.get("SKLERA_ENABLED"):
         sklera_inactivity_manager = SkleraInactivityManager()
         app.installEventFilter(sklera_inactivity_manager)
-    mainWindow = MainWindow(APP_NAME)
+    mainWindow = MainWindow(APP_NAME, inactivity_manager=sklera_inactivity_manager)
     mainWindow.show()
     sys.exit(app.exec())
