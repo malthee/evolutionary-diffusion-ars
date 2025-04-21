@@ -10,6 +10,7 @@ if not exist %VENV_DIR% (
 REM Activate virtual environment
 call %VENV_DIR%\Scripts\activate
 
+SET USE_TORCH=1
 REM Run the main application
 echo Running the application...
 python main.py
