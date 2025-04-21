@@ -7,10 +7,11 @@ from PyQt6.QtCore import pyqtSlot, QObject, pyqtSignal, QThread, QMutex
 from diffusers.utils import logging
 from evolutionary_imaging.evaluators import AestheticsImageEvaluator
 from evolutionary_prompt_embedding.argument_types import PooledPromptEmbedData
-from evolutionary_prompt_embedding.image_creation import SDXLPromptEmbeddingImageCreator
 from evolutionary_prompt_embedding.value_ranges import SDXLTurboEmbeddingRange, SDXLTurboPooledEmbeddingRange
 from evolutionary_prompt_embedding.variation import \
     UniformGaussianMutatorArguments, PooledUniformGaussianMutator, PooledArithmeticCrossover
+
+from sdxl_prompt_embedding_generator_tuned import SDXLPromptEmbeddingGeneratorTuned
 
 SHELVE = "evolutionary_diffusion_shelve"
 IMAGE_COUNTER = "image_counter"
@@ -108,7 +109,7 @@ class ImageManager(QObject):
         logging.disable_progress_bar()  # Or else your output will be full of progress bars
         logging.set_verbosity_error()
         os.mkdir(IMAGE_LOCATION) if not os.path.exists(IMAGE_LOCATION) else None
-        self.imageCreator = SDXLPromptEmbeddingImageCreator(inference_steps=3, batch_size=1, deterministic=True)
+        self.imageCreator = SDXLPromptEmbeddingGeneratorTuned(inference_steps=3, batch_size=1, deterministic=True)
         self.evaluator = AestheticsImageEvaluator(device="cpu")  # Force CPU for windows compatibility, CUDA causes errors
         self.embedding_range = SDXLTurboEmbeddingRange()
         self.pooled_embedding_range = SDXLTurboPooledEmbeddingRange()
