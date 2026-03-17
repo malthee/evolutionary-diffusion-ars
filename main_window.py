@@ -22,11 +22,16 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._inactivity_manager = inactivity_manager
         self._image_manager = ImageManager()
-        self._qr_blob_manager = QRBlobManager()
+        self._qr_blob_manager: Optional[QRBlobManager] = None
+        try:
+            self._qr_blob_manager = QRBlobManager()
+            # Finished qr codes are added to the image manager.
+            self._qr_blob_manager.qr_image_finished.connect(self._image_manager.manual_add_image)
+        except ValueError as e:
+            # Keep the app usable without Azure credentials.
+            print(f"QR upload disabled: {e}")
         self._image_manager.imageAdded.connect(self.on_image_added)
         self._image_manager.imageRemoved.connect(self.on_image_removed)
-        # Finished qr codes are added to the image manager
-        self._qr_blob_manager.qr_image_finished.connect(self._image_manager.manual_add_image)
 
         self.setWindowTitle(app_name)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.CustomizeWindowHint)

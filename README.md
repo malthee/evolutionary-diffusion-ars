@@ -6,15 +6,30 @@ Complementary to the https://github.com/malthee/evolutionary-diffusion repositor
 <img alt="ui_overview" src="https://github.com/user-attachments/assets/57bd2aea-fb3b-4fc4-9114-4205bd06c7df">
 
 ## Installation
-1. Install Python https://www.python.org/downloads/
-2. (CUDA, Windows only) Windows needs additional special treatment for the `pytorch` package. For windows using CUDA, execute `_windows_install.bat`. 
-2. (Others only) Navigate to the `evolutionary-diffusion-ars` folder and install the `requirements.txt` with `pip install -r requirements.txt`.
-3. Define the `.env` variables
+1. Install Python from https://www.python.org/downloads/ (Python `3.12` recommended).
+2. Install Git (required because `requirements.txt` includes a GitHub dependency).
+3. Windows (CUDA): execute `_windows_install.bat`.
+4. Others: navigate to `evolutionary-diffusion-ars` and install dependencies:
 
-Required Environment Variables. Can be provided in a `.env` file in the root of the project:
-* ED_BLOB_CONTAINER_NAME - Azure Blob Storage Container Name
-* ED_BLOB_KEY - Azure Blob Storage Key
-* ED_BLOB_URL - Azure Blob Storage URL
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+5. Define the `.env` variables.
+
+Pinned upstream dependency:
+* `evolutionary-diffusion` is pinned in `requirements.txt` to commit `d4906d8b2eb12aa56b12beca36d791697969279d` for reproducibility.
+
+Windows CUDA notes:
+* `_windows_install.bat` installs `torch==2.7.1`, `torchvision==0.22.1`, `torchaudio==2.7.1` from `https://download.pytorch.org/whl/cu126`.
+* It then installs the remaining dependencies from `requirements.txt` with the same PyTorch index as extra index.
+
+Environment Variables. Can be provided in a `.env` file in the root of the project:
+* `ED_BLOB_CONTAINER_NAME`, `ED_BLOB_KEY`, `ED_BLOB_URL` (optional): Enables QR upload/download feature.
+* `SKLERA_ENABLED` (optional): Set to `true/1/yes/on` to enable Sklera inactivity integration.
+* `SKLERA_API_TOKEN`, `SKLERA_SCREEN_ID` (required only when `SKLERA_ENABLED=true`).
 
 ## Running
 Run the `main.py` file.

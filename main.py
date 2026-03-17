@@ -12,7 +12,7 @@ from sklera_inactivity_manager import SkleraInactivityManager
 
 APP_NAME = "evolutionary-diffusion Interactive Ars Demo"
 APP_ICON = "./assets/icon.png"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 """
 Quick method to check if the device has CUDA or MPS available.
@@ -26,6 +26,13 @@ def check_device():
         print("CUDA and MPS are not available. Using CPU. (NOT RECOMMENDED)")
 
 
+def is_env_enabled(value: str | None) -> bool:
+    """Parses common truthy environment variable values."""
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 if __name__ == '__main__':
     os.environ["QT_QPA_PLATFORMTHEME"] = "light"  # Force light theme
     check_device()
@@ -36,9 +43,13 @@ if __name__ == '__main__':
     app.setApplicationDisplayName(APP_NAME)
     app.setApplicationVersion(APP_VERSION)
     sklera_inactivity_manager = None
-    if os.environ.get("SKLERA_ENABLED"):
-        sklera_inactivity_manager = SkleraInactivityManager()
-        app.installEventFilter(sklera_inactivity_manager)
+    if is_env_enabled(os.environ.get("SKLERA_ENABLED")):
+        try:
+            sklera_inactivity_manager = SkleraInactivityManager()
+            app.installEventFilter(sklera_inactivity_manager)
+        except ValueError as e:
+            # Keep the app usable when optional SKLERA settings are incomplete.
+            print(f"SKLERA disabled: {e}")
     mainWindow = MainWindow(APP_NAME, inactivity_manager=sklera_inactivity_manager)
     mainWindow.show()
     sys.exit(app.exec())

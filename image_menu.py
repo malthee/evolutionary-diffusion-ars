@@ -1,3 +1,5 @@
+from typing import Optional
+
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QLabel, QWidget, QHBoxLayout, QFrame, QVBoxLayout, QPushButton, \
@@ -42,7 +44,7 @@ AVAILABLE_STYLES = [
 
 
 class ImageMenu(QFrame):
-    def __init__(self, image_manager: ImageManager, qr_blob_manager: QRBlobManager, parent=None):
+    def __init__(self, image_manager: ImageManager, qr_blob_manager: Optional[QRBlobManager], parent=None):
         super().__init__(parent)
         self._image_manager = image_manager
         self._qr_blob_manager = qr_blob_manager
@@ -138,6 +140,11 @@ class ImageMenu(QFrame):
 
         self.qr_code_button = QPushButton("📷 Download QR Code")
         self.qr_code_button.clicked.connect(self.upload_and_get_qr_code)
+        if self._qr_blob_manager is None:
+            self.qr_code_button.setEnabled(False)
+            self.qr_code_button.setToolTip(
+                "Set ED_BLOB_CONTAINER_NAME, ED_BLOB_KEY and ED_BLOB_URL to enable QR upload."
+            )
 
         self.layout.addWidget(self.mutate_button)
         self.layout.addWidget(self.qr_code_button)
@@ -195,9 +202,11 @@ class ImageMenu(QFrame):
         self.update_visibility(len(self._image_manager.selected_images))
 
     def closeEvent(self, event):
-        self._qr_blob_manager.qr_image_finished.disconnect(self._image_manager.manual_add_image)
-        self._image_manager.selectionChanged.disconnect(self.update_visibility)
-        self._image_manager.isLoadingChanged.disconnect(self.update_loading)
+        try:
+            self._image_manager.selectionCountChanged.disconnect(self.update_visibility)
+            self._image_manager.isLoadingChanged.disconnect(self.update_loading)
+        except TypeError:
+            pass
         self.timer.stop()
         event.accept()
 
@@ -238,7 +247,7 @@ class ImageMenu(QFrame):
             self.style_combo.setVisible(none_selected)
             self.new_image_button.setVisible(none_selected)
             self.mutate_button.setVisible(one_selected)
-            self.qr_code_button.setVisible(one_selected)
+            self.qr_code_button.setVisible(one_selected and self._qr_blob_manager is not None)
             self.split_button.setVisible(two_selected)
             self.slider_images_widget.setVisible(two_selected)
 
@@ -251,6 +260,9 @@ class ImageMenu(QFrame):
 
     @pyqtSlot()
     def upload_and_get_qr_code(self):
+        if self._qr_blob_manager is None:
+            print("QR upload is disabled because blob environment variables are not configured.")
+            return
         image_info = self._image_manager.selected_images[0]
         self._qr_blob_manager.start_upload(image_info)
 

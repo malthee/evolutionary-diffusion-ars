@@ -9,3 +9,5 @@
 *.bak
 *.dat
 *.dir
+
+/.venv/

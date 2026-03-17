@@ -1,9 +1,10 @@
 PyQt6~=6.7.1
-evolutionary[all] @ git+https://git@github.com/malthee/evolutionary-diffusion.git
+# Install only imaging extras needed by this app.
+evolutionary[imaging] @ git+https://github.com/malthee/evolutionary-diffusion.git@d4906d8b2eb12aa56b12beca36d791697969279d
 qrcode~=7.4.2
 pillow~=10.4.0
 azure-storage-blob~=12.21.0
 python-dotenv~=1.0.1
-torch~=2.5.1
 azure-core~=1.30.2
 requests~=2.32.3
+torch~=2.7.1
